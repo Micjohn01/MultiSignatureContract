@@ -7,15 +7,15 @@ contract MyMultiSign {
     uint8 public quorum;
     uint8 public noOfValidSigners;
     uint256 public txCount;
-    
+
     struct Transaction {
         uint256 id;
-        uint amount;
+        uint256 amount;
         address sender;
         address recipient;
         bool isCompleted;
-        uint timestamp;
-        uint noOfApproval;
+        uint256 timestamp;
+        uint256 noOfApproval;
         address tokenAddress;
         address[] transactionSigners;
     }
@@ -23,25 +23,32 @@ contract MyMultiSign {
     mapping(address => bool) isValidSigner;
     mapping(uint => Transaction) transactions; // txId -> Transaction
     // signer -> transactionId -> bool (checking if an address has signed)
-    mapping (address => mapping (uint256 => bool)) hasSigned;
+    mapping(address => mapping(uint256 => bool)) hasSigned;
 
     constructor(uint8 _quorum, address[] memory _validSigners) {
-        quorum = _quorum;
+        require(_validSigners.length > 1, "few valid signers");
+        require(_quorum > 1, "quorum is too small");
 
-        for (uint256 i = 0; i < _validSigners.length; i++) {
+
+        for(uint256 i = 0; i < _validSigners.length; i++) {
             require(_validSigners[i] != address(0), "zero address not allowed");
+            require(!isValidSigner[_validSigners[i]], "signer already exist");
 
             isValidSigner[_validSigners[i]] = true;
-        }  
+        }
+
         noOfValidSigners = uint8(_validSigners.length);
 
-        if (!isValidSigner[msg.sender]) {
+        if (!isValidSigner[msg.sender]){
             isValidSigner[msg.sender] = true;
             noOfValidSigners += 1;
         }
-        }
 
-    function transfer(uint256 _amount, address _recipient, address _tokenAddress) external{
+        require(_quorum <= noOfValidSigners, "quorum greater than valid signers");
+        quorum = _quorum;
+    }
+
+    function transfer(uint256 _amount, address _recipient, address _tokenAddress) external {
         require(msg.sender != address(0), "address zero found");
         require(isValidSigner[msg.sender], "invalid signer");
 
@@ -53,7 +60,7 @@ contract MyMultiSign {
 
         uint256 _txId = txCount + 1;
         Transaction storage trx = transactions[_txId];
-
+        
         trx.id = _txId;
         trx.amount = _amount;
         trx.recipient = _recipient;
@@ -70,9 +77,9 @@ contract MyMultiSign {
     function approveTx(uint8 _txId) external {
         Transaction storage trx = transactions[_txId];
 
-        require(IERC20(trx.tokenAddress).balanceOf(address(this)) >= trx.amount, "insufficient funds");
-
         require(trx.id != 0, "invalid tx id");
+        
+        require(IERC20(trx.tokenAddress).balanceOf(address(this)) >= trx.amount, "insufficient funds");
         require(!trx.isCompleted, "transaction already completed");
         require(trx.noOfApproval < quorum, "approvals already reached");
 
@@ -89,17 +96,18 @@ contract MyMultiSign {
         trx.noOfApproval += 1;
         trx.transactionSigners.push(msg.sender);
 
-        if (trx.noOfApproval == quorum) {
+        if(trx.noOfApproval == quorum) {
             trx.isCompleted = true;
             IERC20(trx.tokenAddress).transfer(trx.recipient, trx.amount);
         }
     }
 
-    function withdraw(uint256 _amount, address _tokenAddress) external {
+    function updateQuorum(uint8 _quorum) external {
+        require(isValidSigner[msg.sender], "not a valid signer");
+        require(_quorum > 1, "quorum is too small");
+        require(_quorum <= noOfValidSigners, "quorum greater than valid signers");
+        quorum = _quorum;
 
-    }
-
-    function updateQuorum(uint8 _newQuorum) external {
-
-    }
+        
+    } 
 }
