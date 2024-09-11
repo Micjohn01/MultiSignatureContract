@@ -7,7 +7,8 @@ contract MyMultiSign {
     uint8 public quorum;
     uint8 public noOfValidSigners;
     uint256 public txCount;
-
+    uint256 public quorumUpdateCount;
+    
     struct Transaction {
         uint256 id;
         uint256 amount;
@@ -20,10 +21,25 @@ contract MyMultiSign {
         address[] transactionSigners;
     }
 
+    struct QuorumUpdate {
+        uint256 id;
+        address sender;
+        address[] transactionSigners;
+        bool isCompleted;
+        uint256 timestamp;
+        uint256 noOfApproval;
+        uint8 prevQuorumNumber;
+        uint8 newQuorumNumber;
+    }
+
+
     mapping(address => bool) isValidSigner;
+    mapping(uint => QuorumUpdate) quorumUpdates;
     mapping(uint => Transaction) transactions; // txId -> Transaction
     // signer -> transactionId -> bool (checking if an address has signed)
     mapping(address => mapping(uint256 => bool)) hasSigned;
+
+    mapping (address => mapping (uint256 => bool)) hasSignedQuorumTrx;
 
     constructor(uint8 _quorum, address[] memory _validSigners) {
         require(_validSigners.length > 1, "few valid signers");
@@ -100,14 +116,52 @@ contract MyMultiSign {
             trx.isCompleted = true;
             IERC20(trx.tokenAddress).transfer(trx.recipient, trx.amount);
         }
+
     }
 
     function updateQuorum(uint8 _quorum) external {
         require(isValidSigner[msg.sender], "not a valid signer");
-        require(_quorum > 1, "quorum is too small");
-        require(_quorum <= noOfValidSigners, "quorum greater than valid signers");
-        quorum = _quorum;
+        require(msg.sender != address(0), "zero address not allowed");
 
-        
-    } 
+        require(_quorum <= noOfValidSigners, "quorum greater than valid signers");
+
+        require(_quorum > 1, "quorum is too small");
+        uint256 _txId = quorumUpdateCount + 1;
+        QuorumUpdate storage trx = quorumUpdates[_txId];
+        trx.id = _txId;
+        trx.sender = msg.sender;
+        trx.timestamp = block.timestamp;
+        trx.noOfApproval += 1;
+        trx.transactionSigners.push(msg.sender);
+        hasSignedQuorumTrx[msg.sender][_txId] = true;
+        quorumUpdateCount += 1;
+        trx.prevQuorumNumber = quorum;
+        trx.newQuorumNumber = _quorum;
+    }
+
+    function approveQuorumUpdate(uint8 _txId) external {
+        QuorumUpdate storage trx = quorumUpdates[_txId];
+
+        require(trx.id != 0, "invalid tx id");
+
+        require(!trx.isCompleted, "transaction completed already");
+        require(trx.noOfApproval < quorum, "approvals reached already");
+
+        require(isValidSigner[msg.sender], "not a valid signer");
+        require(!hasSignedQuorumTrx[msg.sender][_txId], "can't sign twice");
+
+        hasSignedQuorumTrx[msg.sender][_txId] = true;
+        trx.noOfApproval += 1;
+        trx.transactionSigners.push(msg.sender);
+
+        if(trx.noOfApproval == quorum) {
+            trx.isCompleted = true;
+            quorum = trx.newQuorumNumber;
+        }
+    }
+
+    function getAValidSigner(address addr) external view returns (bool) {
+        return isValidSigner[addr];
+    }
+
 }
